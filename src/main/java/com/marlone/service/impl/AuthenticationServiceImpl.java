@@ -1,12 +1,21 @@
 package com.marlone.service.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.marlone.service.JwtService;
 import com.marlone.token.TokenRepository;
 import com.marlone.token.Token;
 import com.marlone.token.TokenType;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.http.HttpHeaders;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Service;
 
 import com.marlone.dao.request.SignUpRequest;
@@ -18,6 +27,8 @@ import com.marlone.repository.UserRepository;
 import com.marlone.service.AuthenticationService;
 
 import lombok.RequiredArgsConstructor;
+
+import java.io.IOException;
 
 @Service
 @RequiredArgsConstructor
@@ -38,9 +49,14 @@ public class AuthenticationServiceImpl implements AuthenticationService {
                 .role(Role.USER).build();
         userRepository.save(user);
         var jwt = jwtService.generateToken(user);
+        var refreshToken = jwtService.generateRefreshToken(user);
         revokeAllUserTokens(user);
         saveUserToken(user, jwt);
-        return JwtAuthenticationResponse.builder().token(jwt).build();
+        return JwtAuthenticationResponse
+                .builder()
+                .accessToken(jwt)
+                .refreshToken(refreshToken)
+                .build();
     }
 
 
@@ -51,9 +67,45 @@ public class AuthenticationServiceImpl implements AuthenticationService {
         var user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new IllegalArgumentException("Invalid email or password."));
         var jwt = jwtService.generateToken(user);
+        var refreshToken = jwtService.generateRefreshToken(user);
         revokeAllUserTokens(user);
         saveUserToken(user, jwt);
-        return JwtAuthenticationResponse.builder().token(jwt).build();
+        return JwtAuthenticationResponse
+                .builder()
+                .accessToken(jwt)
+                .refreshToken(refreshToken)
+                .build();
+    }
+
+    @Override
+    public void refreshToken(
+            HttpServletRequest request,
+            HttpServletResponse response) throws IOException {
+        final String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
+        final String refreshToken;
+        final String userEmail;
+        if (StringUtils.isEmpty(authHeader) || !StringUtils.startsWith(authHeader, "Bearer ")) {
+            return;
+        }
+        refreshToken = authHeader.substring(7);
+        userEmail = jwtService.extractUserName(refreshToken);
+        if (StringUtils.isNotEmpty(userEmail)) {
+            var userDetails = this.userRepository.findByEmail(userEmail).orElseThrow();
+
+
+            if (jwtService.isTokenValid(refreshToken, userDetails)) {
+                var accessToken = jwtService.generateToken(userDetails);
+                revokeAllUserTokens(userDetails);
+                saveUserToken(userDetails, accessToken);
+                var authResponse = JwtAuthenticationResponse
+                        .builder()
+                        .accessToken(accessToken)
+                        .refreshToken(refreshToken)
+                        .build();
+
+                new ObjectMapper().writeValue(response.getOutputStream(), authResponse);
+            }
+        }
     }
 
     private void revokeAllUserTokens(User user) {
