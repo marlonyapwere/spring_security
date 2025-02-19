@@ -1,4 +1,9 @@
+server:
+  port: 8075
+
 spring:
+  application:
+    name: "Security"
   datasource:
     url: jdbc:postgresql://localhost:5432/security
     username: postgres
@@ -21,3 +26,24 @@ token:
     expiration: 86400000
     refresh-token:
       expiration: 604800000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    shutdown:
+      access: unrestricted
+  info:
+    env:
+      enabled: true
+
+eureka:
+  instance:
+    preferIpAddress: true
+  client:
+    fetchRegistry: true
+    registerWithEureka: true
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/
